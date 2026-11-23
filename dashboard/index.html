@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Radar — pre-token protocols ranked by implied launch value</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="mark" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div>
+      <h1>Token Radar</h1>
+      <p class="tag">Pre-token protocols, ranked by what their launch would be worth — and how to farm each one.</p>
+    </div>
+  </div>
+  <dl class="stats" id="stats"></dl>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab on" data-view="board" role="tab">The board</button>
+  <button class="tab" data-view="live" role="tab">Already trading</button>
+  <button class="tab" data-view="method" role="tab">How it works</button>
+</nav>
+
+<main>
+  <section id="view-board">
+    <div class="controls">
+      <label class="grow">Search <input id="q" type="search" placeholder="protocol name or slug"></label>
+      <label>Category <select id="f-cat"></select></label>
+      <label>Chain <select id="f-chain"></select></label>
+      <label>Sort <select id="f-sort">
+        <option value="rank">Implied value</option>
+        <option value="tvl">TVL</option>
+        <option value="change">7-day growth</option>
+        <option value="age">Age without a token</option>
+        <option value="multiple">Peer multiple</option>
+      </select></label>
+      <label class="check"><input id="f-watch" type="checkbox"> Watchlist only</label>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="boardwrap">
+      <table class="board">
+        <thead><tr>
+          <th class="num">#</th><th>Protocol</th><th>Category</th><th>Chains</th>
+          <th class="num">TVL</th><th class="num">7d</th><th class="num">Age</th>
+          <th class="num">Multiple</th><th class="num">Implied value</th><th>Range</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <aside class="detail" id="detail" hidden></aside>
+    </div>
+  </section>
+
+  <section id="view-live" hidden>
+    <p class="lede">These protocols already have a token that trades, so the radar does not price them:
+      it shows the market's own value. They are the peer set the board's model is fitted on —
+      <span id="live-count"></span> of them carry a recorded market cap in the snapshot.</p>
+    <table class="board">
+      <thead><tr><th>Protocol</th><th>Symbol</th><th>Category</th><th class="num">TVL</th><th class="num">Market cap</th><th class="num">7d</th></tr></thead>
+      <tbody id="live-rows"></tbody>
+    </table>
+  </section>
+
+  <section id="view-method" hidden>
+    <div class="cols">
+      <div>
+        <h2>What the radar reads</h2>
+        <p>The board is built from one sealed snapshot of every protocol DefiLlama tracks at or above
+          $5M of TVL, fetched once and never updated. A protocol is <em>pre-token</em> when the record
+          carries no token for it: no market cap, no CoinGecko id, no symbol. That is all the snapshot
+          says — a protocol <em>records</em> no token; the radar never claims it has none.</p>
+        <h2>Who gets ranked</h2>
+        <p>The snapshot's watchlist — every pre-token protocol at or above the $50M floor that is not a
+          wrapped, staked, bridged or versioned product of another protocol — is the floor, never the
+          ceiling. The radar applies that same definition at every TVL, so the board also carries the
+          smaller, earlier protocols the floor leaves out. Every watchlist protocol is on the board;
+          exchange pages and products of protocols that already trade are not.</p>
+        <h2>The value model</h2>
+        <p>No constant in the model was picked by hand. The snapshot's own tokenized protocols — the
+          peers whose tokens already trade — price the ones that have not launched:</p>
+        <p class="formula">implied value = TVL × category multiple × size × momentum × seasoning</p>
+        <ul>
+          <li><strong>Category multiple.</strong> For each category, the median market-cap/TVL of its
+            tokenized peers, with ratios winsorized to the cross-section's 5th–95th percentiles and the
+            median shrunk toward the global median (prior strength 8), so one loud peer cannot price a
+            category. The shrunk 25th–75th percentiles give each row its range.</li>
+          <li><strong>Size.</strong> Among the peers, market cap grows sublinearly with TVL. Half of
+            that fitted elasticity is applied around the peers' median TVL, so size tempers the
+            multiple instead of compounding it.</li>
+          <li><strong>Momentum.</strong> A joint fit of log market cap on log TVL, weekly growth and
+            log age finds that market caps lag a one-week TVL surge — the denominator moves before any
+            re-rating. Half of that fitted slope, clamped to ×0.90–×1.11, corrects for it: one week of
+            movement is a correction, never a re-rating.</li>
+          <li><strong>Seasoning.</strong> The same fit's age slope, half strength, clamped to
+            ×0.85–×1.18. On this snapshot it is small and slightly favours the young; the radar
+            reports the fit rather than assuming older is worth more.</li>
+        </ul>
+        <p>Open any row on the board and the detail view shows that protocol's own factors and the
+          multiplication, so every rank on the board can be checked by hand.</p>
+        <h2>The farm plans</h2>
+        <p>Each plan is generated from the protocol's own record: its category picks the playbook, its
+          chains pick where the steps happen and what an action costs there, its TVL picks the
+          position size, and its age picks how many weeks the plan runs. Every step states its cost
+          and its time. A plan is a starting routine, not financial advice.</p>
+      </div>
+      <div>
+        <h2>The fitted numbers</h2>
+        <p class="small">Computed from the snapshot at run time, printed here from the run's own data —
+          the same numbers that priced the board.</p>
+        <dl class="fit" id="fit"></dl>
+        <h3>Category multiples</h3>
+        <table class="board mini">
+          <thead><tr><th>Category</th><th class="num">Peers</th><th class="num">Multiple</th><th class="num">Range</th></tr></thead>
+          <tbody id="cat-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>Data: the sealed snapshot in the bounty kit — DefiLlama's protocol list, fetched once
+    (<span id="src"></span>). Implied values are this radar's own model output, not a prediction
+    that any protocol will issue a token.</p>
+</footer>
+
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
