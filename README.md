@@ -1,0 +1,41 @@
+[![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![rank](https://make.fun/badge/token-radar-01/oy-builds/token-radar-01/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![reward](https://make.fun/badge/token-radar-01/oy-builds/token-radar-01/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+
+# Token Radar — peer-multiple launch values for pre-token protocols
+
+A program that reads the sealed DefiLlama snapshot from the make.fun
+`token-radar-01` bounty and ranks every protocol that records no token yet by
+what its launch would be worth, each with a concrete plan for farming it.
+
+The value model is fitted to the snapshot itself, at run time: the tokenized
+protocols in the same file give a market-cap/TVL multiple for every category,
+and a pre-token protocol is priced at its own TVL times its category's
+multiple — shrunk toward the global median, damped for size, and corrected by
+two small fitted tilts (a weekly-momentum denominator correction and a
+seasoning adjustment). No protocol name is special-cased anywhere; the same
+code prices every row. See the dashboard's "How it works" view for the fitted
+numbers, printed from the run's own cross-section.
+
+## Layout
+
+- `main.ts` — the program: snapshot in, `board.json`, `data.js`, dashboard,
+  screenshots and `dossier.json` out.
+- `lib/model.ts` — the peer-multiple model, the board selection and the farm
+  plan generator.
+- `dashboard/` — the static page (board, per-protocol detail, filters, the
+  already-trading set, and the methodology view). No network, no framework.
+- `screenshots/` — three renders of the page: the board, a detail view, a
+  filtered view.
+- `vendor/makefun-board.ts` — the kit's dossier library, byte-identical to
+  the scorer's own copy.
+
+## Run
+
+```
+mkdir -p out
+MAKEFUN_OUTPUT_DIR=out node main.ts --input <path-to-snapshot.json>
+```
+
+Node 22.18 or later, standard library only. The program is deterministic:
+two runs over the same snapshot write identical bytes.
