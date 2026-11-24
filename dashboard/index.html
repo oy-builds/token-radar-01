@@ -21,6 +21,7 @@
 <nav class="tabs" role="tablist">
   <button class="tab on" data-view="board" role="tab">The board</button>
   <button class="tab" data-view="live" role="tab">Already trading</button>
+  <button class="tab" data-view="compare" role="tab">Compare <span id="cmp-count"></span></button>
   <button class="tab" data-view="method" role="tab">How it works</button>
 </nav>
 
@@ -38,8 +39,31 @@
         <option value="multiple">Peer multiple</option>
       </select></label>
       <label class="check"><input id="f-watch" type="checkbox"> Watchlist only</label>
+      <button id="export-csv" type="button" class="csvbtn">Export CSV</button>
       <span class="count" id="count"></span>
     </div>
+    <div id="pinned" class="pinned" hidden></div>
+    <section class="sandbox" id="sandbox" aria-label="What-if sandbox">
+      <div class="sb-head">
+        <h2>Sandbox — what if?</h2>
+        <span class="sb-note">What-if only — it does not change the ranked board.</span>
+        <button id="sb-reset" type="button" class="rowbtn">Reset</button>
+      </div>
+      <div class="sb-sliders">
+        <label>Weekly-growth assumption <span id="sb-growth-out" class="sb-val">×1.00</span>
+          <input id="sb-growth" type="range" min="-20" max="20" step="1" value="0">
+          <span class="sb-range"><span>−20% growth</span><span>+20% growth</span></span>
+        </label>
+        <label>Category-multiple shock <span id="sb-multiple-out" class="sb-val">×1.00</span>
+          <input id="sb-multiple" type="range" min="-25" max="25" step="1" value="0">
+          <span class="sb-range"><span>−25% multiple</span><span>+25% multiple</span></span>
+        </label>
+      </div>
+      <p class="sb-explain">Growth moves each row's momentum correction the way the model computes it
+        (half the fitted slope, clamped ×0.90–×1.11); the shock scales the category multiple. The list
+        below re-ranks the board under those two changes.</p>
+      <ol class="sb-top" id="sb-top" aria-live="polite"></ol>
+    </section>
     <div class="boardwrap">
       <table class="board">
         <thead><tr>
@@ -61,6 +85,12 @@
       <thead><tr><th>Protocol</th><th>Symbol</th><th>Category</th><th class="num">TVL</th><th class="num">Market cap</th><th class="num">7d</th></tr></thead>
       <tbody id="live-rows"></tbody>
     </table>
+  </section>
+
+  <section id="view-compare" hidden>
+    <p class="lede">Pick up to three protocols from the board and compare them side by side. The best
+      value in each row is highlighted. The compare view never changes the ranked board.</p>
+    <div id="compare-wrap" aria-live="polite"></div>
   </section>
 
   <section id="view-method" hidden>
