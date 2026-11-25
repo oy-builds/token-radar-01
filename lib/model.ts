@@ -302,17 +302,31 @@ const EXCHANGE_PREFIX = /^(Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gem
 const PRODUCT_CATEGORIES = new Set(['Bridge', 'Canonical Bridge', 'Liquid Staking', 'Liquid Restaking', 'Restaked BTC', 'CEX']);
 
 /**
- * The radar's own selection rule: the watchlist's definition, applied at
- * every TVL instead of only above its floor. A pre-token protocol qualifies
- * unless it is a wrapped, staked, bridged or versioned product of another
- * protocol, or an exchange's own page. The watchlist itself is always
- * carried whole, whatever this rule would say.
+ * Why a pre-token protocol is a product of something else rather than an
+ * independent launch candidate, in the snapshot field guide's own terms —
+ * or null when it is a launch candidate. The watchlist's definition is the
+ * classifier: a wrapped, staked, bridged or versioned product of another
+ * protocol, or an exchange's own page, is flagged, never hidden: the board
+ * ranks every protocol that records no token, and this label is what keeps
+ * the two kinds apart on it.
  */
+export function productReason(p: SnapshotProtocol): string | null {
+  if (!isPreToken(p)) return null;
+  if (p.category !== null && PRODUCT_CATEGORIES.has(p.category)) {
+    if (p.category === 'CEX') return "an exchange's own page";
+    if (p.category === 'Bridge' || p.category === 'Canonical Bridge') return 'a bridged product of another asset';
+    if (p.category === 'Restaked BTC') return 'a restaked product of another asset';
+    return 'a staking product of another asset';
+  }
+  if (VERSIONED.test(p.name)) return 'a versioned product of another protocol';
+  if (WRAPPED_WORD.test(p.name)) return 'a wrapped or staked product of another asset';
+  if (EXCHANGE_PREFIX.test(p.name)) return "an exchange's own product";
+  return null;
+}
+
+/** A pre-token protocol with nothing flagging it as another protocol's product. */
 export function isGenuineLaunchCandidate(p: SnapshotProtocol): boolean {
-  if (!isPreToken(p)) return false;
-  if (p.category !== null && PRODUCT_CATEGORIES.has(p.category)) return false;
-  if (VERSIONED.test(p.name) || WRAPPED_WORD.test(p.name) || EXCHANGE_PREFIX.test(p.name)) return false;
-  return true;
+  return productReason(p) === null;
 }
 
 // ---------------------------------------------------------------------------
@@ -345,6 +359,31 @@ function planWeeks(age: number | null): number {
   if (age < 180) return 10;
   if (age < 730) return 8;
   return 6;
+}
+
+/** The gas a launch plan spends in total: exactly the sum of the gas its own steps state, step by step. */
+function planGasUsd(p: SnapshotProtocol, weeks: number): number {
+  const gas = actionCostUsd(p.chains[0] ?? 'its main chain');
+  const step3 = p.chains.length > 1 ? actionCostUsd(p.chains[1]!) * 2 : gas * 2;
+  return gas * 6 + gas + step3 + gas * weeks + gas * 2;
+}
+
+/**
+ * One protocol's plan summary: the headline numbers its steps are built
+ * from — position size from its TVL tier, total gas from its chains, and
+ * the run length from its age, in weeks and in days. A product row's plan
+ * spends only the round-trip cost of holding the product (see
+ * productSteps), so its gas is that round trip.
+ */
+export function planSummaryFor(p: SnapshotProtocol, age: number | null): PlanSummary {
+  const weeks = planWeeks(age);
+  const gas = actionCostUsd(p.chains[0] ?? 'its main chain');
+  return {
+    capital_usd: capitalFor(p.tvl_usd),
+    gas_usd: productReason(p) !== null ? gas * 2 : planGasUsd(p, weeks),
+    weeks,
+    days: weeks * 7,
+  };
 }
 
 interface Playbook {
@@ -419,31 +458,77 @@ function stepText(text: string): string {
   return s;
 }
 
-/** One protocol's farm plan: six steps, each with what it costs and how long it takes. */
-export function farmSteps(p: SnapshotProtocol, age: number | null): string[] {
+/** A launch candidate's farm plan: six steps, each with what it costs and how long it takes. */
+function launchSteps(p: SnapshotProtocol, age: number | null): string[] {
   const chain = p.chains[0] ?? 'its main chain';
   const secondChain = p.chains.length > 1 ? p.chains[1]! : null;
   const gas = actionCostUsd(chain);
   const capital = capitalFor(p.tvl_usd);
   const weeks = planWeeks(age);
+  const days = weeks * 7;
+  const totalGas = planGasUsd(p, weeks);
   const book = playbookFor(p.category);
   const name = p.name;
+  const moreChains =
+    p.chains.length > 2 ? ` Its record also lists ${p.chains.slice(2).join(', ')}: one small action on each in week 2 widens the footprint.` : '';
   const steps = [
-    `Set up one wallet for ${name} and fund it on ${chain} with $${capital} of USDC plus about $${gas * 6} for gas across the plan. Cost: about $${gas * 6} in gas on top of the position. Time: 20 minutes, once.`,
+    `Set up one wallet for ${name} and fund it on ${chain} with $${capital} of USDC, with about $${gas * 6} of gas money to start; the whole plan below spends about $${totalGas} in gas in total. Cost: the $${capital} position plus about $${totalGas} in gas. Time: 20 minutes, once.`,
     `Open the position: ${book.open}. Cost: about $${gas} in gas; the $${capital} stays yours and withdrawable unless the product says otherwise. Time: 15 minutes.`,
     secondChain === null
       ? `Go one step deeper on ${chain}: ${book.second}. Cost: about $${gas * 2} in gas. Time: 25 minutes.`
-      : `Repeat the core action on ${secondChain}, ${name}'s second chain, with a quarter of the capital, so the account is active on both deployments. Cost: about $${actionCostUsd(secondChain) * 2} in gas plus any bridge fee. Time: 30 minutes.`,
-    `Run the weekly habit for ${weeks} weeks: ${book.habit}. Cost: about $${gas} a week in gas, $${gas * weeks} over the plan. Time: 10 minutes a week, ${weeks} weeks.`,
-    `Hold the position through the whole ${weeks} weeks without emptying the wallet: protocols read snapshots of balances and activity, and a wallet that leaves early usually scores as a passer-by. Cost: the $${capital} stays committed. Time: ${weeks} weeks of holding.`,
+      : `Repeat the core action on ${secondChain}, ${name}'s second chain, with a quarter of the capital, so the account is active on both deployments.${moreChains} Cost: about $${actionCostUsd(secondChain) * 2} in gas plus any bridge fee. Time: 30 minutes.`,
+    `Run the weekly habit for ${weeks} weeks (${days} days): ${book.habit}. Cost: about $${gas} a week in gas, $${gas * weeks} over the plan. Time: 10 minutes a week for ${days} days.`,
+    `Hold the position through the whole ${weeks} weeks (${days} days) without emptying the wallet: protocols read snapshots of balances and activity, and a wallet that leaves early usually scores as a passer-by. Cost: the $${capital} stays committed. Time: ${days} days of holding.`,
     `At a launch, act in the first claim window: check the wallet's allocation on ${name}'s own page, claim to the same wallet that farmed, and read the vesting terms before moving anything. Cost: about $${gas * 2} in gas. Time: about 1 hour, once, when it happens.`,
   ];
   return steps.map(stepText);
 }
 
+/**
+ * A product row's plan: no steps toward a launch that is not this row's to
+ * give. It says what the row is, where the exposure actually sits, and —
+ * for a reader who wants the position anyway — what holding it costs and
+ * how long the review cycle runs, in the same cost-and-time form.
+ */
+function productSteps(p: SnapshotProtocol, age: number | null, reason: string): string[] {
+  const chain = p.chains[0] ?? 'its main chain';
+  const gas = actionCostUsd(chain);
+  const capital = capitalFor(p.tvl_usd);
+  const weeks = planWeeks(age);
+  const days = weeks * 7;
+  const name = p.name;
+  const steps = [
+    `Know what this row is before any money moves: ${name} is ${reason}. It records no token of its own in the snapshot, and there is no separate launch of ${name} to farm. Cost: $0. Time: 10 minutes of reading.`,
+    `Place the exposure where it belongs: whatever ${name} is worth tracks the asset or platform behind it, not a future ${name} token. Any launch news, if it ever comes, will come from that parent, not from this entry. Cost: $0. Time: 10 minutes.`,
+    `If you hold it anyway, hold it on its own terms: obtain about $${capital} of ${name} through its own platform on ${chain}. Cost: about $${gas * 2} in platform fees and gas for the round trip. Time: 20 minutes, once.`,
+    `Hold it as a position, not a farm: review it on a ${weeks}-week cycle (${days} days), checking that the asset or platform behind it is unchanged. Cost: the $${capital} stays committed while you hold. Time: ${days} days of holding.`,
+    `Watch the parent, not this row: five minutes a week checking the parent platform's own announcements is the whole routine, because there is no ${name} launch to position for. Cost: $0. Time: 5 minutes a week.`,
+  ];
+  return steps.map(stepText);
+}
+
+/**
+ * One protocol's farm plan, in the form its kind calls for: a launch
+ * candidate gets the six-step farming routine; a product of another
+ * protocol gets the five-step note above. Every step states its cost and
+ * its time, and the numbers are the ones planSummaryFor reports.
+ */
+export function farmSteps(p: SnapshotProtocol, age: number | null): string[] {
+  const reason = productReason(p);
+  return reason !== null ? productSteps(p, age, reason) : launchSteps(p, age);
+}
+
 // ---------------------------------------------------------------------------
 // The board and the dashboard's data.
 // ---------------------------------------------------------------------------
+
+/** A farm plan's headline numbers, computed from the same figures its steps state. */
+export interface PlanSummary {
+  capital_usd: number;
+  gas_usd: number;
+  weeks: number;
+  days: number;
+}
 
 /** One row of board.json: the ranked claim, its fitted factors and its farm plan. */
 export interface BoardRow {
@@ -457,6 +542,12 @@ export interface BoardRow {
   listed_at: string | null;
   age_days: number | null;
   watchlist: boolean;
+  /** 'launch': an independent launch candidate. 'product': flagged as another protocol's product or an exchange's page (see kind_label). */
+  kind: 'launch' | 'product';
+  /** What kind of row this is, in words: 'independent launch candidate', or the productReason that flagged it. */
+  kind_label: string;
+  /** The plan's headline numbers: position size, total gas, and how long it runs. */
+  plan: PlanSummary;
   /** How many tokenized peers of its category priced this row (0: priced on the global cross-section). */
   peers: number;
   implied_value_usd: number;
@@ -488,7 +579,7 @@ export interface RadarData {
   source: string;
   floor_usd: number;
   model_version: string;
-  counts: { protocols: number; peers: number; pre_token: number; board: number; watchlist: number; live: number };
+  counts: { protocols: number; peers: number; pre_token: number; board: number; watchlist: number; live: number; launches: number; products: number };
   model: Omit<PeerModel, 'byCategory'>;
   rows: RadarRow[];
   live: LiveRow[];
@@ -498,10 +589,15 @@ export interface RadarData {
 export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; data: RadarData } {
   const model = fitPeerModel(snapshot);
   const watch = new Set(snapshot.watchlist);
+  // The board ranks every protocol that records no token: the whole
+  // pre-token universe, not only the names the watchlist's definition
+  // certifies. Products of other protocols and exchange pages are ranked
+  // too and flagged as what they are (kind / kind_label), so nothing the
+  // snapshot records is invisible and nothing is passed off as a launch
+  // it is not. The watchlist is carried whole as well, as a safety net:
+  // on this snapshot every watchlist protocol is pre-token already.
   const chosen = new Map<string, SnapshotProtocol>();
-  for (const p of snapshot.protocols) if (isGenuineLaunchCandidate(p)) chosen.set(p.slug, p);
-  // The watchlist is the floor: carried whole even if the selection rule
-  // above would have left a name out (on this snapshot it leaves none out).
+  for (const p of snapshot.protocols) if (isPreToken(p)) chosen.set(p.slug, p);
   const index = new Map(snapshot.protocols.map((p) => [p.slug, p]));
   for (const slug of snapshot.watchlist) {
     const p = index.get(slug);
@@ -512,24 +608,30 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; data: Radar
     return { p, ...priced };
   });
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
-  const board: BoardRow[] = scored.map((s, i) => ({
-    rank: i + 1,
-    slug: s.p.slug,
-    name: s.p.name,
-    category: s.p.category,
-    chains: s.p.chains,
-    tvl_usd: s.p.tvl_usd,
-    change_7d: s.p.change_7d,
-    listed_at: s.p.listed_at,
-    age_days: s.age,
-    watchlist: watch.has(s.p.slug),
-    peers: s.peers,
-    implied_value_usd: s.implied,
-    value_low_usd: s.low,
-    value_high_usd: s.high,
-    model: s.factors,
-    farm_steps: farmSteps(s.p, s.age),
-  }));
+  const board: BoardRow[] = scored.map((s, i) => {
+    const reason = productReason(s.p);
+    return {
+      rank: i + 1,
+      slug: s.p.slug,
+      name: s.p.name,
+      category: s.p.category,
+      chains: s.p.chains,
+      tvl_usd: s.p.tvl_usd,
+      change_7d: s.p.change_7d,
+      listed_at: s.p.listed_at,
+      age_days: s.age,
+      watchlist: watch.has(s.p.slug),
+      kind: reason !== null ? ('product' as const) : ('launch' as const),
+      kind_label: reason !== null ? reason : 'independent launch candidate',
+      plan: planSummaryFor(s.p, s.age),
+      peers: s.peers,
+      implied_value_usd: s.implied,
+      value_low_usd: s.low,
+      value_high_usd: s.high,
+      model: s.factors,
+      farm_steps: farmSteps(s.p, s.age),
+    };
+  });
   const live: LiveRow[] = snapshot.protocols
     .filter((p) => p.mcap_usd !== null && p.mcap_usd > 0)
     .sort((a, b) => b.mcap_usd! - a.mcap_usd! || (a.slug < b.slug ? -1 : 1))
@@ -548,6 +650,8 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; data: Radar
       board: board.length,
       watchlist: snapshot.watchlist.length,
       live: live.length,
+      launches: board.filter((r) => r.kind === 'launch').length,
+      products: board.filter((r) => r.kind === 'product').length,
     },
     model: modelPublic,
     rows: board,
