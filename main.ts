@@ -3,7 +3,9 @@
 //
 // The program reads the snapshot at /input/snapshot.json (or --input), fits
 // the peer-multiple model in lib/model.ts to the snapshot's own tokenized
-// protocols, and prices every protocol that records no token yet. It writes
+// protocols, and prices every protocol that records no token yet — the
+// whole pre-token universe, with products of other protocols and exchange
+// pages flagged as what they are rather than left off the board. It writes
 // the ranked board to /output/board.json, the dashboard's data to
 // /output/data.js, copies this repository's dashboard/ and screenshots/ to
 // /output, and writes /output/dossier.json with buildDossier from
@@ -95,7 +97,7 @@ const dossier = buildDossier(out, { text_max_bytes: TEXT_MAX_BYTES, screenshots:
 writeFileSync(join(out, 'dossier.json'), dossier);
 
 process.stdout.write(
-  `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows ranked, ${data.counts.live} trading protocols set aside\n` +
+  `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows ranked (${data.counts.launches} launch candidates, ${data.counts.products} flagged products), ${data.counts.live} trading protocols set aside\n` +
     `token radar: model ${MODEL_VERSION} fitted on ${data.counts.peers} tokenized peers: global multiple ${data.model.global_multiple}, size exponent ${data.model.size_exponent}, momentum slope ${data.model.momentum_slope}, seasoning slope ${data.model.seasoning_slope}\n` +
     `token radar: wrote board.json, data.js, dashboard/ (${dashFiles.length} files), screenshots/ (${shots.length} images) and dossier.json (${dossier.length} bytes)\n`,
 );
