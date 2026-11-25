@@ -3,7 +3,12 @@
    program writes from the same board it hands in. No network, no framework.
    Round 1 adds: a compare view (up to 3 protocols), a what-if sandbox that
    re-prices the board from the model's own factors, CSV export of the visible
-   rows, and pinned rows that survive filters and sorts. */
+   rows, and pinned rows that survive filters and sorts.
+   Round 2: the board ranks every protocol that records no token — products
+   of other protocols and exchange pages included and flagged, not hidden —
+   and the farm plans are generated here, in this file, from each row's own
+   record (the generator below), so the plan a reader sees is built by code
+   the reader can read, and matches the handed-in board step for step. */
 'use strict';
 const R = window.RADAR;
 const $ = (id) => document.getElementById(id);
@@ -16,10 +21,164 @@ const minLow = Math.min(...R.rows.map((r) => r.value_low_usd));
 const logPos = (v) => Math.max(0, Math.min(100, ((Math.log(Math.max(1, v)) - Math.log(minLow)) / (Math.log(maxHigh) - Math.log(minLow))) * 100));
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 
+/* ------------------------------------------------------------------ *
+   Farm plans, generated from each row's own record — the same code the
+   program's lib/model.ts runs to write board.json, kept in step with it.
+   A row's category picks the playbook, its chains pick where the steps
+   happen and what an action costs there, its TVL picks the position
+   size, and its age picks how many weeks the plan runs. A product row
+   (kind 'product': a wrapped, staked, bridged or versioned product of
+   another protocol, or an exchange's own page) gets the other plan: it
+   says what the row is and what holding it costs, because there is no
+   launch of that row to farm. */
+
+function actionCostUsd(chain) {
+  if (chain === 'Ethereum') return 9;
+  if (chain === 'Solana' || chain === 'Base' || chain === 'Arbitrum' || chain === 'OP Mainnet' || chain === 'Polygon' || chain === 'Avalanche' || chain === 'BSC') return 1;
+  return 3;
+}
+function capitalFor(tvl) {
+  if (tvl >= 1_000_000_000) return 500;
+  if (tvl >= 250_000_000) return 250;
+  if (tvl >= 50_000_000) return 150;
+  if (tvl >= 10_000_000) return 75;
+  return 40;
+}
+function planWeeks(age) {
+  if (age === null) return 8;
+  if (age < 180) return 10;
+  if (age < 730) return 8;
+  return 6;
+}
+function planGasUsd(r, weeks) {
+  const gas = actionCostUsd(r.chains[0] ?? 'its main chain');
+  const step3 = r.chains.length > 1 ? actionCostUsd(r.chains[1]) * 2 : gas * 2;
+  return gas * 6 + gas + step3 + gas * weeks + gas * 2;
+}
+/* The plan's headline numbers, from the same figures its steps state. */
+function planSummaryFor(r) {
+  const weeks = planWeeks(r.age_days);
+  const gas = actionCostUsd(r.chains[0] ?? 'its main chain');
+  return {
+    capital_usd: capitalFor(r.tvl_usd),
+    gas_usd: r.kind === 'product' ? gas * 2 : planGasUsd(r, weeks),
+    weeks,
+    days: weeks * 7,
+  };
+}
+function playbookFor(category) {
+  const c = (category ?? '').toLowerCase();
+  if (c.includes('lend') || c.includes('cdp') || c.includes('collateral'))
+    return {
+      open: 'supply the USDC as collateral and leave the health factor above 2.0',
+      second: 'borrow a small amount of the chain\'s base asset against the position, swap it back to USDC and supply it again, one loop only',
+      habit: 'repay and re-borrow a small slice so the account shows borrowing activity, not just deposits',
+    };
+  if (c.includes('dex') || c.includes('derivative') || c.includes('perpetual'))
+    return {
+      open: 'add the capital to the protocol\'s deepest USDC pool as liquidity',
+      second: 'route a few swaps a week through the protocol\'s own interface rather than an aggregator, so the volume is recorded on it',
+      habit: 'rebalance the liquidity position back into range and claim any fees into the same pool',
+    };
+  if (c.includes('curator') || c.includes('allocator') || c.includes('yield'))
+    return {
+      open: 'deposit the USDC into the protocol\'s flagship vault and keep the vault shares in the same wallet',
+      second: 'split a quarter of the position into a second vault with a different strategy, so the account holds more than one product',
+      habit: 'move a small amount between the two vaults, which records an active allocation history',
+    };
+  if (c.includes('prediction'))
+    return {
+      open: 'fund the account and take small positions on both sides of the two most liquid markets',
+      second: 'provide liquidity to one long-dated market and leave the quotes resting instead of cancelling them',
+      habit: 'settle finished markets promptly and roll the proceeds into the next week\'s markets',
+    };
+  if (c.includes('rwa') || c.includes('real world'))
+    return {
+      open: 'complete the onboarding the protocol asks for and mint its yield asset with the capital',
+      second: 'hold the minted asset in the same wallet and make one secondary transfer to a second wallet you control, then back',
+      habit: 'add a small top-up mint so the account shows recurring, not one-off, participation',
+    };
+  if (c.includes('chain'))
+    return {
+      open: 'bridge the capital onto the chain and make the first transactions with its native applications',
+      second: 'use two of the chain\'s own flagship applications (a swap and a lending market) so activity is spread across the ecosystem',
+      habit: 'keep a weekly transaction streak going: one swap, one contract interaction, no empty weeks',
+    };
+  if (c.includes('insurance'))
+    return {
+      open: 'buy cover on the largest pool the protocol insures, for the longest term it offers',
+      second: 'underwrite a small amount into the capital pool as well, so the account appears on both sides of the market',
+      habit: 'renew the cover before it lapses so coverage never shows a gap',
+    };
+  if (c.includes('gaming') || c.includes('nft'))
+    return {
+      open: 'mint or buy one entry-level asset in the protocol\'s own marketplace and use it in the product',
+      second: 'list and re-buy a small item through the protocol\'s marketplace so the account has trade history, not just a mint',
+      habit: 'play or use the product in one short session, which is the activity these launches usually measure',
+    };
+  return {
+    open: 'deposit the USDC into the protocol\'s main product and keep the position open',
+    second: 'make one second, different kind of interaction the product offers (a second market, a governance vote, or a longer lock)',
+    habit: 'repeat the core interaction with a slightly different amount, so the history reads as use, not as a single visit',
+  };
+}
+function stepText(text) {
+  let s = text.trim();
+  if (s.length > 600) s = `${s.slice(0, 597)}...`;
+  if (s.length < 20) s = `${s} Keep records of every transaction hash.`;
+  return s;
+}
+function launchSteps(r) {
+  const chain = r.chains[0] ?? 'its main chain';
+  const secondChain = r.chains.length > 1 ? r.chains[1] : null;
+  const gas = actionCostUsd(chain);
+  const capital = capitalFor(r.tvl_usd);
+  const weeks = planWeeks(r.age_days);
+  const days = weeks * 7;
+  const totalGas = planGasUsd(r, weeks);
+  const book = playbookFor(r.category);
+  const name = r.name;
+  const moreChains =
+    r.chains.length > 2 ? ` Its record also lists ${r.chains.slice(2).join(', ')}: one small action on each in week 2 widens the footprint.` : '';
+  const steps = [
+    `Set up one wallet for ${name} and fund it on ${chain} with $${capital} of USDC, with about $${gas * 6} of gas money to start; the whole plan below spends about $${totalGas} in gas in total. Cost: the $${capital} position plus about $${totalGas} in gas. Time: 20 minutes, once.`,
+    `Open the position: ${book.open}. Cost: about $${gas} in gas; the $${capital} stays yours and withdrawable unless the product says otherwise. Time: 15 minutes.`,
+    secondChain === null
+      ? `Go one step deeper on ${chain}: ${book.second}. Cost: about $${gas * 2} in gas. Time: 25 minutes.`
+      : `Repeat the core action on ${secondChain}, ${name}'s second chain, with a quarter of the capital, so the account is active on both deployments.${moreChains} Cost: about $${actionCostUsd(secondChain) * 2} in gas plus any bridge fee. Time: 30 minutes.`,
+    `Run the weekly habit for ${weeks} weeks (${days} days): ${book.habit}. Cost: about $${gas} a week in gas, $${gas * weeks} over the plan. Time: 10 minutes a week for ${days} days.`,
+    `Hold the position through the whole ${weeks} weeks (${days} days) without emptying the wallet: protocols read snapshots of balances and activity, and a wallet that leaves early usually scores as a passer-by. Cost: the $${capital} stays committed. Time: ${days} days of holding.`,
+    `At a launch, act in the first claim window: check the wallet's allocation on ${name}'s own page, claim to the same wallet that farmed, and read the vesting terms before moving anything. Cost: about $${gas * 2} in gas. Time: about 1 hour, once, when it happens.`,
+  ];
+  return steps.map(stepText);
+}
+function productSteps(r) {
+  const chain = r.chains[0] ?? 'its main chain';
+  const gas = actionCostUsd(chain);
+  const capital = capitalFor(r.tvl_usd);
+  const weeks = planWeeks(r.age_days);
+  const days = weeks * 7;
+  const name = r.name;
+  const reason = r.kind_label;
+  const steps = [
+    `Know what this row is before any money moves: ${name} is ${reason}. It records no token of its own in the snapshot, and there is no separate launch of ${name} to farm. Cost: $0. Time: 10 minutes of reading.`,
+    `Place the exposure where it belongs: whatever ${name} is worth tracks the asset or platform behind it, not a future ${name} token. Any launch news, if it ever comes, will come from that parent, not from this entry. Cost: $0. Time: 10 minutes.`,
+    `If you hold it anyway, hold it on its own terms: obtain about $${capital} of ${name} through its own platform on ${chain}. Cost: about $${gas * 2} in platform fees and gas for the round trip. Time: 20 minutes, once.`,
+    `Hold it as a position, not a farm: review it on a ${weeks}-week cycle (${days} days), checking that the asset or platform behind it is unchanged. Cost: the $${capital} stays committed while you hold. Time: ${days} days of holding.`,
+    `Watch the parent, not this row: five minutes a week checking the parent platform's own announcements is the whole routine, because there is no ${name} launch to position for. Cost: $0. Time: 5 minutes a week.`,
+  ];
+  return steps.map(stepText);
+}
+/* The farm plan for one row, in the form its kind calls for. */
+function farmStepsFor(r) {
+  return r.kind === 'product' ? productSteps(r) : launchSteps(r);
+}
+
 /* Header stats */
 $('stats').innerHTML = [
   ['Snapshot', R.as_of], ['Protocols read', R.counts.protocols], ['Peers fitted', R.counts.peers],
-  ['Board rows', R.counts.board], ['Watchlist', `${R.counts.watchlist}/${R.counts.watchlist}`],
+  ['Board rows', R.counts.board], ['Launch candidates', R.counts.launches], ['Flagged products', R.counts.products],
+  ['Watchlist', `${R.counts.watchlist}/${R.counts.watchlist}`],
 ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
 $('src').textContent = R.source;
 $('live-count').textContent = R.counts.peers;
@@ -32,11 +191,12 @@ for (const r of R.rows) for (const c of r.chains) chainCount.set(c, (chainCount.
 $('f-chain').innerHTML = '<option value="">All chains</option>' +
   [...chainCount.entries()].sort((a, b) => b[1] - a[1]).map(([c, n]) => `<option value="${esc(c)}">${esc(c)} (${n})</option>`).join('');
 
-const state = { q: '', cat: '', chain: '', watch: false, sort: 'rank', sel: null, compare: [], pins: new Set(), sandbox: { growth: 0, mult: 0 } };
+const state = { q: '', cat: '', chain: '', kind: '', watch: false, sort: 'rank', sel: null, compare: [], pins: new Set(), sandbox: { growth: 0, mult: 0 } };
 function visible() {
   let rows = R.rows.filter((r) =>
     (state.cat === '' || (r.category ?? 'Uncategorized') === state.cat) &&
     (state.chain === '' || r.chains.includes(state.chain)) &&
+    (state.kind === '' || r.kind === state.kind) &&
     (!state.watch || r.watchlist) &&
     (state.q === '' || r.name.toLowerCase().includes(state.q) || r.slug.includes(state.q)));
   const by = {
@@ -53,7 +213,7 @@ function renderBoard() {
   $('count').textContent = `${rows.length} of ${R.rows.length} protocols`;
   $('rows').innerHTML = rows.map((r) => `<tr data-slug="${esc(r.slug)}" class="${state.sel === r.slug ? 'sel' : ''}">
     <td class="num">${r.rank}</td>
-    <td><span class="name">${esc(r.name)}</span>${r.watchlist ? '<span class="badge">WATCHLIST</span>' : ''}<br><span class="rowacts"><button type="button" class="rowbtn pinbtn${state.pins.has(r.slug) ? ' on' : ''}" data-pin="${esc(r.slug)}">${state.pins.has(r.slug) ? '★ Pinned' : '☆ Pin'}</button><button type="button" class="rowbtn cmpbtn${state.compare.includes(r.slug) ? ' on' : ''}" data-cmp="${esc(r.slug)}">${state.compare.includes(r.slug) ? '✓ In compare' : '+ Compare'}</button></span></td>
+    <td><span class="name">${esc(r.name)}</span>${r.watchlist ? '<span class="badge">WATCHLIST</span>' : ''}${r.kind === 'product' ? `<span class="badge prod" title="${esc(r.kind_label)}">PRODUCT</span>` : ''}<br><span class="rowacts"><button type="button" class="rowbtn pinbtn${state.pins.has(r.slug) ? ' on' : ''}" data-pin="${esc(r.slug)}">${state.pins.has(r.slug) ? '★ Pinned' : '☆ Pin'}</button><button type="button" class="rowbtn cmpbtn${state.compare.includes(r.slug) ? ' on' : ''}" data-cmp="${esc(r.slug)}">${state.compare.includes(r.slug) ? '✓ In compare' : '+ Compare'}</button></span></td>
     <td>${esc(r.category ?? '—')}</td>
     <td class="chains">${esc(r.chains.slice(0, 3).join(', '))}${r.chains.length > 3 ? ` +${r.chains.length - 3}` : ''}</td>
     <td class="num">${money(r.tvl_usd)}</td><td class="num">${pct(r.change_7d)}</td>
@@ -67,7 +227,7 @@ function renderBoard() {
   renderPinned();
   syncCmpTab();
 }
-function openDetail(slug) {
+function openDetail(slug, tab = 'value') {
   const r = R.rows.find((x) => x.slug === slug);
   if (!r) return;
   state.sel = slug;
@@ -77,11 +237,17 @@ function openDetail(slug) {
   const d = $('detail');
   d.hidden = false;
   d.innerHTML = `<button class="close" aria-label="Close">×</button>
-    <h2>${esc(r.name)}${r.watchlist ? '<span class="badge">WATCHLIST</span>' : ''}</h2>
+    <h2>${esc(r.name)}${r.watchlist ? '<span class="badge">WATCHLIST</span>' : ''}${r.kind === 'product' ? '<span class="badge prod">PRODUCT</span>' : ''}</h2>
     <p class="sub">Rank #${r.rank} of ${R.rows.length} · ${esc(r.category ?? 'Uncategorized')} · records no token</p>
     <p><button type="button" class="rowbtn cmpbtn${state.compare.includes(r.slug) ? ' on' : ''}" id="detail-cmp">${state.compare.includes(r.slug) ? '✓ In compare' : '+ Compare'}</button></p>
     <div class="big">${money(r.implied_value_usd)}</div>
     <div class="bigrange">implied launch value · range ${money(r.value_low_usd)} – ${money(r.value_high_usd)}</div>
+    <div class="dtabs" role="tablist">
+      <button type="button" data-tab="value" class="${tab === 'value' ? 'on' : ''}">Value</button>
+      <button type="button" data-tab="farm" class="${tab === 'farm' ? 'on' : ''}">Farm plan</button>
+      <button type="button" data-tab="record" class="${tab === 'record' ? 'on' : ''}">Record</button>
+    </div>
+    <div data-panel="value"${tab === 'value' ? '' : ' hidden'}>
     <dl class="kv">
       <dt>TVL</dt><dd>${money(r.tvl_usd)}</dd>
       <dt>7-day change</dt><dd>${r.change_7d === null ? '—' : (r.change_7d > 0 ? '+' : '') + r.change_7d.toFixed(1) + '%'}</dd>
@@ -100,13 +266,37 @@ function openDetail(slug) {
     <p class="why">${esc(r.name)} is priced from ${r.peers > 0 ? `the ${r.peers} tokenized ${esc(r.category ?? 'Uncategorized')} peers in the snapshot` : 'the whole tokenized cross-section, its category having no priced peer'}:
       their median market cap is ${f.multiple.toFixed(2)}× TVL, shrunk toward the global median. Its range runs from the
       lower quartile multiple (×${f.low_multiple.toFixed(2)}) to the upper quartile (×${f.high_multiple.toFixed(2)}).</p>
+    </div>
+    <div data-panel="farm"${tab === 'farm' ? '' : ' hidden'}>
     <h3>Farm plan</h3>
-    <ol class="plan">${r.farm_steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>`;
+    ${r.kind === 'product' ? `<p class="kindnote">Flagged: this row is ${esc(r.kind_label)}. It is ranked for coverage, and its plan is about the position, not a launch.</p>` : ''}
+    <p class="glance"><span>Capital <strong>${money(r.plan.capital_usd)}</strong></span><span>Gas, total <strong>≈ ${money(r.plan.gas_usd)}</strong></span><span>Hold <strong>${r.plan.weeks} weeks (${r.plan.days} days)</strong></span><span>Steps <strong>${farmStepsFor(r).length}</strong></span></p>
+    <ol class="plan">${farmStepsFor(r).map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
+    </div>
+    <div data-panel="record"${tab === 'record' ? '' : ' hidden'}>
+    <h3>The record, as the snapshot holds it</h3>
+    <dl class="kv">
+      <dt>Slug</dt><dd>${esc(r.slug)}</dd>
+      <dt>Kind</dt><dd>${esc(r.kind)} — ${esc(r.kind_label)}</dd>
+      <dt>Category</dt><dd>${esc(r.category ?? 'none recorded')}</dd>
+      <dt>Chains</dt><dd>${esc(r.chains.join(', ') || 'none listed')}</dd>
+      <dt>Tracked since</dt><dd>${esc(r.listed_at ?? 'not dated')}</dd>
+      <dt>Age, no token</dt><dd>${r.age_days === null ? 'not dated' : `${r.age_days} days`}</dd>
+      <dt>TVL, as recorded</dt><dd>$${r.tvl_usd.toLocaleString('en-US')}</dd>
+      <dt>7-day change, raw</dt><dd>${r.change_7d === null ? 'not recorded' : r.change_7d}</dd>
+      <dt>Implied value, raw</dt><dd>$${Math.round(r.implied_value_usd).toLocaleString('en-US')}</dd>
+      <dt>On the watchlist</dt><dd>${r.watchlist ? 'yes' : 'no'}</dd>
+    </dl>
+    </div>`;
   d.querySelector('.close').addEventListener('click', () => { d.hidden = true; state.sel = null; renderBoard(); });
-  $('detail-cmp').addEventListener('click', () => { toggleCompare(r.slug); openDetail(r.slug); });
+  $('detail-cmp').addEventListener('click', () => { const t = d.querySelector('.dtabs button.on')?.dataset.tab ?? 'value'; toggleCompare(r.slug); openDetail(r.slug, t); });
+  for (const b of d.querySelectorAll('.dtabs button')) b.addEventListener('click', () => {
+    for (const x of d.querySelectorAll('.dtabs button')) x.classList.toggle('on', x === b);
+    for (const p of d.querySelectorAll('[data-panel]')) p.hidden = p.dataset.panel !== b.dataset.tab;
+  });
   d.scrollTop = 0;
 }
-for (const [id, key, fn] of [['q', 'q', (v) => v.toLowerCase()], ['f-cat', 'cat', (v) => v], ['f-chain', 'chain', (v) => v], ['f-sort', 'sort', (v) => v]])
+for (const [id, key, fn] of [['q', 'q', (v) => v.toLowerCase()], ['f-cat', 'cat', (v) => v], ['f-chain', 'chain', (v) => v], ['f-kind', 'kind', (v) => v], ['f-sort', 'sort', (v) => v]])
   $(id).addEventListener('input', (e) => { state[key] = fn(e.target.value); renderBoard(); });
 $('f-watch').addEventListener('change', (e) => { state.watch = e.target.checked; renderBoard(); });
 
@@ -158,7 +348,7 @@ function renderCompare() {
     metric('Peer multiple', (r) => `×${r.model.multiple.toFixed(2)}`, (rs) => rs.indexOf(rs.reduce((a, b) => (a.model.multiple >= b.model.multiple ? a : b)))),
     metric('Implied value', (r) => money(r.implied_value_usd), (rs) => rs.indexOf(rs.reduce((a, b) => (a.implied_value_usd >= b.implied_value_usd ? a : b)))),
     metric('Range', (r) => `${money(r.value_low_usd)} – ${money(r.value_high_usd)}`, null),
-    metric('Farm steps', (r) => `${r.farm_steps.length} steps — ${r.farm_steps[0]}`, (rs) => rs.indexOf(rs.reduce((a, b) => (a.farm_steps.length >= b.farm_steps.length ? a : b)))),
+    metric('Farm steps', (r) => `${farmStepsFor(r).length} steps — ${farmStepsFor(r)[0]}`, (rs) => rs.indexOf(rs.reduce((a, b) => (farmStepsFor(a).length >= farmStepsFor(b).length ? a : b)))),
   ];
   wrap.innerHTML = `<table class="cmp"><thead><tr><th></th>${rows.map((r) => `<th><span class="name">${esc(r.name)}</span>${r.watchlist ? '<span class="badge">WATCHLIST</span>' : ''} <button type="button" class="rowbtn rm" data-rm="${esc(r.slug)}" aria-label="Remove from compare">×</button></th>`).join('')}</tr></thead><tbody>${
     metrics.map((m) => `<tr><th>${m.label}</th>${rows.map((r, i) => `<td class="${m.best !== null && m.best(rows) === i ? 'best' : ''}">${m.best !== null && m.best(rows) === i ? `<strong>${esc(m.val(r))}</strong>` : esc(m.val(r))}</td>`).join('')}</tr>`).join('')
@@ -264,5 +454,6 @@ if (hash.get('compare')) {
   renderBoard();
   renderCompare();
 }
+if (hash.get('kind') === 'launch' || hash.get('kind') === 'product') { state.kind = hash.get('kind'); $('f-kind').value = state.kind; renderBoard(); }
 if (hash.get('view')) show(hash.get('view'));
-if (hash.get('detail')) openDetail(hash.get('detail'));
+if (hash.get('detail')) openDetail(hash.get('detail'), ['value', 'farm', 'record'].includes(hash.get('tab')) ? hash.get('tab') : 'value');

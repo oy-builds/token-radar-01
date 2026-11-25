@@ -31,6 +31,11 @@
       <label class="grow">Search <input id="q" type="search" placeholder="protocol name or slug"></label>
       <label>Category <select id="f-cat"></select></label>
       <label>Chain <select id="f-chain"></select></label>
+      <label>Kind <select id="f-kind">
+        <option value="">All rows</option>
+        <option value="launch">Launch candidates</option>
+        <option value="product">Products &amp; exchange pages</option>
+      </select></label>
       <label>Sort <select id="f-sort">
         <option value="rank">Implied value</option>
         <option value="tvl">TVL</option>
@@ -102,11 +107,15 @@
           carries no token for it: no market cap, no CoinGecko id, no symbol. That is all the snapshot
           says — a protocol <em>records</em> no token; the radar never claims it has none.</p>
         <h2>Who gets ranked</h2>
-        <p>The snapshot's watchlist — every pre-token protocol at or above the $50M floor that is not a
-          wrapped, staked, bridged or versioned product of another protocol — is the floor, never the
-          ceiling. The radar applies that same definition at every TVL, so the board also carries the
-          smaller, earlier protocols the floor leaves out. Every watchlist protocol is on the board;
-          exchange pages and products of protocols that already trade are not.</p>
+        <p>Every protocol in the snapshot that records no token — all 342 of them, priced by the same
+          fitted model. The snapshot's watchlist definition still does the classifying: 198 rows are
+          independent launch candidates, and the other 144 are flagged on the board for what they
+          are — a wrapped, staked, bridged or versioned product of another protocol, or an exchange's
+          own page. The snapshot's own field guide draws the same line, naming WBTC and Binance
+          staked ETH as products of another protocol rather than launches of their own. Flagged rows
+          keep their price and their rank, carry a PRODUCT badge, and can be filtered out with the
+          Kind filter; nothing the snapshot records is left invisible, and nothing is passed off as
+          a launch it is not. Every one of the 40 watchlist protocols is on the board.</p>
         <h2>The value model</h2>
         <p>No constant in the model was picked by hand. The snapshot's own tokenized protocols — the
           peers whose tokens already trade — price the ones that have not launched:</p>
@@ -130,10 +139,15 @@
         <p>Open any row on the board and the detail view shows that protocol's own factors and the
           multiplication, so every rank on the board can be checked by hand.</p>
         <h2>The farm plans</h2>
-        <p>Each plan is generated from the protocol's own record: its category picks the playbook, its
-          chains pick where the steps happen and what an action costs there, its TVL picks the
-          position size, and its age picks how many weeks the plan runs. Every step states its cost
-          and its time. A plan is a starting routine, not financial advice.</p>
+        <p>Each plan is generated from the protocol's own record by code that ships in this page
+          (dashboard/app.js) as well as in the program: its category picks the playbook, its chains
+          pick where the steps happen and what an action costs there, its TVL picks the position
+          size, and its age picks how many weeks the plan runs — six to ten weeks, stated in weeks
+          and in days. A launch candidate's plan runs six steps and its detail view opens with the
+          totals: position size, total gas, hold length. A flagged product's plan is five steps of a
+          different kind: it says what the row is, where the exposure actually sits, and what
+          holding the product anyway would cost — because there is no launch of that row to farm.
+          Every step states its cost and its time. A plan is a starting routine, not financial advice.</p>
       </div>
       <div>
         <h2>The fitted numbers</h2>
